@@ -210,7 +210,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
 
     outro_cmd = [
         "-f", "lavfi",
-        "-i", f"color=c=0x111111:s={w}x{h}:d={req.outro_duration}:r={fps}",
+        "-i", f"color=c=black:s={w}x{h}:d={req.outro_duration}:r={fps}",
         "-i", str(logo_path),
         "-filter_complex", outro_filter,
         "-c:v", "libx264", "-preset", "fast", "-crf", "18",

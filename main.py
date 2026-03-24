@@ -22,6 +22,9 @@ from typing import Optional
 
 app = FastAPI(title="Kaizen FFmpeg Service", version="2.0.0")
 
+from pad_to_square import router as pad_router
+app.include_router(pad_router)
+
 WORK_DIR = Path("/tmp/kaizen-ffmpeg")
 WORK_DIR.mkdir(exist_ok=True)
 
@@ -46,27 +49,6 @@ class ProcessVideoResponse(BaseModel):
     output_url: str
     filename: str
 
-
-class PadToSquareRequest(BaseModel):
-    image_url: str = Field(..., description="URL изображения")
-    bg_color: str = Field("black", description="Цвет полос: black, white")
-
-
-class PadToSquareResponse(BaseModel):
-    status: str
-    output_url: str
-    filename: str
-
-
-class PadToVerticalRequest(BaseModel):
-    image_url: str = Field(..., description="URL изображения")
-    bg_color: str = Field("black", description="Цвет полос: black, white")
-
-
-class PadToVerticalResponse(BaseModel):
-    status: str
-    output_url: str
-    filename: str
 
 
 # --- Helpers ---
@@ -333,112 +315,6 @@ async def process_endpoint(req: ProcessVideoRequest):
         status="done",
         output_url=f"/download/{job_id}/{filename}",
         filename=filename,
-    )
-
-
-@app.post("/pad-to-square", response_model=PadToSquareResponse)
-async def pad_to_square(req: PadToSquareRequest):
-    """Добавляет полосы чтобы получился формат 1:1 (квадрат)."""
-    job_id = str(uuid.uuid4())[:8]
-    job_dir = WORK_DIR / job_id
-    job_dir.mkdir(exist_ok=True)
-
-    input_path = job_dir / "input.jpg"
-    output_path = job_dir / "square.jpg"
-
-    await download_file(req.image_url, input_path)
-
-    process = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "quiet", "-print_format", "json",
-        "-show_streams", str(input_path),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await process.communicate()
-    info = json.loads(stdout.decode())
-    video_stream = next(
-        (s for s in info.get("streams", []) if s["codec_type"] == "video"), None
-    )
-    if not video_stream:
-        raise HTTPException(status_code=400, detail="Cannot read image dimensions")
-
-    w = int(video_stream["width"])
-    h = int(video_stream["height"])
-
-    # Целевой формат 1:1 — берём большую сторону как размер квадрата
-    size = max(w, h)
-    pad_x = (size - w) // 2
-    pad_y = (size - h) // 2
-
-    cmd = [
-        "-i", str(input_path),
-        "-vf", f"pad={size}:{size}:{pad_x}:{pad_y}:color={req.bg_color}",
-        "-q:v", "2", "-y", str(output_path)
-    ]
-    await run_ffmpeg(cmd)
-
-    filename = f"square_{job_id}.jpg"
-
-    return PadToSquareResponse(
-        status="done",
-        output_url=f"/download/{job_id}/{filename}",
-        filename=filename
-    )
-
-
-@app.post("/pad-to-vertical", response_model=PadToVerticalResponse)
-async def pad_to_vertical(req: PadToVerticalRequest):
-    """Добавляет полосы слева/справа (или сверху/снизу) чтобы получился формат 9:16."""
-    job_id = str(uuid.uuid4())[:8]
-    job_dir = WORK_DIR / job_id
-    job_dir.mkdir(exist_ok=True)
-
-    input_path = job_dir / "input.jpg"
-    output_path = job_dir / "vertical.jpg"
-
-    await download_file(req.image_url, input_path)
-
-    # Получаем размеры изображения
-    process = await asyncio.create_subprocess_exec(
-        "ffprobe", "-v", "quiet", "-print_format", "json",
-        "-show_streams", str(input_path),
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
-    stdout, _ = await process.communicate()
-    info = json.loads(stdout.decode())
-    video_stream = next(
-        (s for s in info.get("streams", []) if s["codec_type"] == "video"), None
-    )
-    if not video_stream:
-        raise HTTPException(status_code=400, detail="Cannot read image dimensions")
-
-    w = int(video_stream["width"])
-    h = int(video_stream["height"])
-
-    # Целевой формат 9:16 — высота остаётся, ширина подгоняется
-    target_w = int(h * 9 / 16)
-    if target_w < w:
-        # Фото слишком широкое — берём ширину как базу
-        target_h = int(w * 16 / 9)
-        target_w = w
-    else:
-        target_h = h
-
-    pad_x = (target_w - w) // 2
-    pad_y = (target_h - h) // 2
-
-    cmd = [
-        "-i", str(input_path),
-        "-vf", f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color={req.bg_color}",
-        "-q:v", "2", "-y", str(output_path)
-    ]
-    await run_ffmpeg(cmd)
-
-    filename = f"vertical_{job_id}.jpg"
-
-    return PadToVerticalResponse(
-        status="done",
-        output_url=f"/download/{job_id}/{filename}",
-        filename=filename
     )
 
 

@@ -47,6 +47,17 @@ class ProcessVideoResponse(BaseModel):
     filename: str
 
 
+class PadToSquareRequest(BaseModel):
+    image_url: str = Field(..., description="URL изображения")
+    bg_color: str = Field("black", description="Цвет полос: black, white")
+
+
+class PadToSquareResponse(BaseModel):
+    status: str
+    output_url: str
+    filename: str
+
+
 class PadToVerticalRequest(BaseModel):
     image_url: str = Field(..., description="URL изображения")
     bg_color: str = Field("black", description="Цвет полос: black, white")
@@ -325,6 +336,55 @@ async def process_endpoint(req: ProcessVideoRequest):
     )
 
 
+@app.post("/pad-to-square", response_model=PadToSquareResponse)
+async def pad_to_square(req: PadToSquareRequest):
+    """Добавляет полосы чтобы получился формат 1:1 (квадрат)."""
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    input_path = job_dir / "input.jpg"
+    output_path = job_dir / "square.jpg"
+
+    await download_file(req.image_url, input_path)
+
+    process = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_streams", str(input_path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await process.communicate()
+    info = json.loads(stdout.decode())
+    video_stream = next(
+        (s for s in info.get("streams", []) if s["codec_type"] == "video"), None
+    )
+    if not video_stream:
+        raise HTTPException(status_code=400, detail="Cannot read image dimensions")
+
+    w = int(video_stream["width"])
+    h = int(video_stream["height"])
+
+    # Целевой формат 1:1 — берём большую сторону как размер квадрата
+    size = max(w, h)
+    pad_x = (size - w) // 2
+    pad_y = (size - h) // 2
+
+    cmd = [
+        "-i", str(input_path),
+        "-vf", f"pad={size}:{size}:{pad_x}:{pad_y}:color={req.bg_color}",
+        "-q:v", "2", "-y", str(output_path)
+    ]
+    await run_ffmpeg(cmd)
+
+    filename = f"square_{job_id}.jpg"
+
+    return PadToSquareResponse(
+        status="done",
+        output_url=f"/download/{job_id}/{filename}",
+        filename=filename
+    )
+
+
 @app.post("/pad-to-vertical", response_model=PadToVerticalResponse)
 async def pad_to_vertical(req: PadToVerticalRequest):
     """Добавляет полосы слева/справа (или сверху/снизу) чтобы получился формат 9:16."""
@@ -385,24 +445,30 @@ async def pad_to_vertical(req: PadToVerticalRequest):
 @app.get("/download/{job_id}/{filename}")
 async def download(job_id: str, filename: str):
     """Скачать готовый файл (видео или изображение)."""
-    # Определяем файл по расширению из filename
-    output_files = {
-        ".mp4": ("final.mp4", "video/mp4"),
-        ".jpg": ("vertical.jpg", "image/jpeg"),
+    media_types = {
+        ".mp4": "video/mp4",
+        ".jpg": "image/jpeg",
     }
 
     ext = Path(filename).suffix.lower()
-    if ext not in output_files:
+    if ext not in media_types:
         raise HTTPException(status_code=400, detail="Unsupported file type")
 
-    actual_name, media_type = output_files[ext]
-    file_path = WORK_DIR / job_id / actual_name
+    # Ищем выходной файл в папке задания
+    job_dir = WORK_DIR / job_id
+    candidates = ["final.mp4", "square.jpg", "vertical.jpg"]
+    file_path = None
+    for name in candidates:
+        p = job_dir / name
+        if p.exists():
+            file_path = p
+            break
 
-    if not file_path.exists():
+    if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         file_path,
-        media_type=media_type,
+        media_type=media_types[ext],
         filename=filename,
     )
 

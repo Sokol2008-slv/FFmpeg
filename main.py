@@ -50,6 +50,7 @@ class ProcessVideoResponse(BaseModel):
     filename: str
 
 
+
 # --- Helpers ---
 
 def escape_drawtext(text: str) -> str:
@@ -320,20 +321,30 @@ async def process_endpoint(req: ProcessVideoRequest):
 @app.get("/download/{job_id}/{filename}")
 async def download(job_id: str, filename: str):
     """Скачать готовый файл (видео или изображение)."""
+    media_types = {
+        ".mp4": "video/mp4",
+        ".jpg": "image/jpeg",
+    }
+
+    ext = Path(filename).suffix.lower()
+    if ext not in media_types:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    # Ищем выходной файл в папке задания
     job_dir = WORK_DIR / job_id
+    candidates = ["final.mp4", "square.jpg", "vertical.jpg"]
+    file_path = None
+    for name in candidates:
+        p = job_dir / name
+        if p.exists():
+            file_path = p
+            break
 
-    if filename.startswith("square_"):
-        file_path = job_dir / "square.jpg"
-        media_type = "image/jpeg"
-    else:
-        file_path = job_dir / "final.mp4"
-        media_type = "video/mp4"
-
-    if not file_path.exists():
+    if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         file_path,
-        media_type=media_type,
+        media_type=media_types[ext],
         filename=filename,
     )
 

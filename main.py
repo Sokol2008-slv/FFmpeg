@@ -47,6 +47,17 @@ class ProcessVideoResponse(BaseModel):
     filename: str
 
 
+class PadToVerticalRequest(BaseModel):
+    image_url: str = Field(..., description="URL изображения")
+    bg_color: str = Field("black", description="Цвет полос: black, white")
+
+
+class PadToVerticalResponse(BaseModel):
+    status: str
+    output_url: str
+    filename: str
+
+
 # --- Helpers ---
 
 def escape_drawtext(text: str) -> str:
@@ -314,15 +325,84 @@ async def process_endpoint(req: ProcessVideoRequest):
     )
 
 
+@app.post("/pad-to-vertical", response_model=PadToVerticalResponse)
+async def pad_to_vertical(req: PadToVerticalRequest):
+    """Добавляет полосы слева/справа (или сверху/снизу) чтобы получился формат 9:16."""
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    input_path = job_dir / "input.jpg"
+    output_path = job_dir / "vertical.jpg"
+
+    await download_file(req.image_url, input_path)
+
+    # Получаем размеры изображения
+    process = await asyncio.create_subprocess_exec(
+        "ffprobe", "-v", "quiet", "-print_format", "json",
+        "-show_streams", str(input_path),
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await process.communicate()
+    info = json.loads(stdout.decode())
+    video_stream = next(
+        (s for s in info.get("streams", []) if s["codec_type"] == "video"), None
+    )
+    if not video_stream:
+        raise HTTPException(status_code=400, detail="Cannot read image dimensions")
+
+    w = int(video_stream["width"])
+    h = int(video_stream["height"])
+
+    # Целевой формат 9:16 — высота остаётся, ширина подгоняется
+    target_w = int(h * 9 / 16)
+    if target_w < w:
+        # Фото слишком широкое — берём ширину как базу
+        target_h = int(w * 16 / 9)
+        target_w = w
+    else:
+        target_h = h
+
+    pad_x = (target_w - w) // 2
+    pad_y = (target_h - h) // 2
+
+    cmd = [
+        "-i", str(input_path),
+        "-vf", f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color={req.bg_color}",
+        "-q:v", "2", "-y", str(output_path)
+    ]
+    await run_ffmpeg(cmd)
+
+    filename = f"vertical_{job_id}.jpg"
+
+    return PadToVerticalResponse(
+        status="done",
+        output_url=f"/download/{job_id}/{filename}",
+        filename=filename
+    )
+
+
 @app.get("/download/{job_id}/{filename}")
 async def download(job_id: str, filename: str):
-    """Скачать готовое видео."""
-    file_path = WORK_DIR / job_id / "final.mp4"
+    """Скачать готовый файл (видео или изображение)."""
+    # Определяем файл по расширению из filename
+    output_files = {
+        ".mp4": ("final.mp4", "video/mp4"),
+        ".jpg": ("vertical.jpg", "image/jpeg"),
+    }
+
+    ext = Path(filename).suffix.lower()
+    if ext not in output_files:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    actual_name, media_type = output_files[ext]
+    file_path = WORK_DIR / job_id / actual_name
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         file_path,
-        media_type="video/mp4",
+        media_type=media_type,
         filename=filename,
     )
 

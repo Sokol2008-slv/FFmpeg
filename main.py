@@ -22,6 +22,9 @@ from typing import Optional
 
 app = FastAPI(title="Kaizen FFmpeg Service", version="2.0.0")
 
+from pad_to_square import router as pad_router
+app.include_router(pad_router)
+
 WORK_DIR = Path("/tmp/kaizen-ffmpeg")
 WORK_DIR.mkdir(exist_ok=True)
 
@@ -316,13 +319,21 @@ async def process_endpoint(req: ProcessVideoRequest):
 
 @app.get("/download/{job_id}/{filename}")
 async def download(job_id: str, filename: str):
-    """Скачать готовое видео."""
-    file_path = WORK_DIR / job_id / "final.mp4"
+    """Скачать готовый файл (видео или изображение)."""
+    job_dir = WORK_DIR / job_id
+
+    if filename.startswith("square_"):
+        file_path = job_dir / "square.jpg"
+        media_type = "image/jpeg"
+    else:
+        file_path = job_dir / "final.mp4"
+        media_type = "video/mp4"
+
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(
         file_path,
-        media_type="video/mp4",
+        media_type=media_type,
         filename=filename,
     )
 

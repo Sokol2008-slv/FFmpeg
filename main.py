@@ -362,5 +362,4 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port,
         timeout_keep_alive=300,
-        timeout_notify=300,
     )

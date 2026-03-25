@@ -225,9 +225,12 @@ async def overlay_price(req: OverlayPriceRequest):
     margin = max(target_w // 25, 20)
 
     # Build filter chain
-    filters = [
-        f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color={req.bg_color}"
-    ]
+    filters = []
+    # Only pad if dimensions actually change
+    if target_w != w or target_h != h:
+        filters.append(
+            f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color={req.bg_color}"
+        )
 
     # Price text (bottom left, bold)
     price_text = req.price.replace("'", "\\'")

@@ -187,7 +187,8 @@ async def overlay_price(req: OverlayPriceRequest):
 
     input_path = job_dir / "input.jpg"
     logo_path = job_dir / "logo.png"
-    output_path = job_dir / "post.jpg"
+    filename = f"post_{job_id}.jpg"
+    output_path = job_dir / filename
 
     await download_file(req.image_url, input_path)
 
@@ -290,7 +291,6 @@ async def overlay_price(req: OverlayPriceRequest):
 
     await run_ffmpeg(cmd)
 
-    filename = f"post_{job_id}.jpg"
     return OverlayPriceResponse(
         status="done",
         output_url=f"/download/{job_id}/{filename}",

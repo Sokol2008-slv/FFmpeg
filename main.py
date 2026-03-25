@@ -369,13 +369,18 @@ async def download(job_id: str, filename: str):
 
     # Ищем выходной файл в папке задания
     job_dir = WORK_DIR / job_id
-    candidates = ["final.mp4", "square.jpg", "vertical.jpg"]
-    file_path = None
-    for name in candidates:
-        p = job_dir / name
-        if p.exists():
-            file_path = p
-            break
+
+    # Сначала пробуем точное имя файла
+    file_path = job_dir / filename
+    if not file_path.exists():
+        # Fallback: ищем по известным именам
+        candidates = ["final.mp4", "square.jpg", "vertical.jpg"]
+        file_path = None
+        for name in candidates:
+            p = job_dir / name
+            if p.exists():
+                file_path = p
+                break
 
     if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")

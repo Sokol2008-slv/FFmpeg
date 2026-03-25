@@ -6,6 +6,7 @@ import uuid
 import json
 import asyncio
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -165,7 +166,7 @@ class OverlayPriceRequest(BaseModel):
     image_url: str = Field(..., description="URL фото блюда")
     dish_name: str = Field(..., description="Название блюда")
     price: str = Field(..., description="Цена, например '57 AED'")
-    logo_url: str = Field(None, description="URL логотипа (PNG)")
+    logo_url: Optional[str] = Field(None, description="URL логотипа (PNG)")
     format: str = Field("square", description="Формат: 'square' (1:1) или 'vertical' (9:16)")
     bg_color: str = Field("black", description="Цвет полос: black, white")
     is_new: bool = Field(False, description="Пометка NEW на фото")

@@ -67,7 +67,7 @@ def escape_drawtext(text: str) -> str:
 
 async def download_file(url: str, dest: Path) -> Path:
     """Скачивает файл по URL."""
-    async with httpx.AsyncClient(follow_redirects=True, timeout=120.0) as client:
+    async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
         resp = await client.get(url)
         resp.raise_for_status()
         dest.write_bytes(resp.content)
@@ -357,4 +357,10 @@ async def startup():
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=port,
+        timeout_keep_alive=300,
+        timeout_notify=300,
+    )

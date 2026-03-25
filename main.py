@@ -37,6 +37,7 @@ class ProcessVideoRequest(BaseModel):
     video_url: str = Field(..., description="URL видео от Kling 2.6")
     logo_url: str = Field(..., description="URL логотипа Kaizen (PNG с прозрачностью)")
     slogan: Optional[str] = Field(None, description="Слоган для аутро (если есть)")
+    target_aspect: Optional[str] = Field(None, description="Целевой формат: '9:16', '1:1' или None (оставить как есть)")
     outro_duration: float = Field(3.0, description="Длительность аутро в секундах")
     fade_duration: float = Field(1.0, description="Длительность crossfade перехода в секундах")
     watermark_opacity: float = Field(0.8, description="Прозрачность watermark (0.0-1.0)")
@@ -162,6 +163,42 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
     has_audio = info["has_audio"]
     duration = info["duration"]
     fade_dur = min(req.fade_duration, duration * 0.5, req.outro_duration * 0.5)
+
+    # 1.5. Pad видео до целевого формата (если указан)
+    if req.target_aspect:
+        padded_path = job_dir / "padded.mp4"
+        if req.target_aspect == "9:16":
+            target_w = int(h * 9 / 16)
+            target_h = h
+            if target_w < w:
+                target_h = int(w * 16 / 9)
+                target_w = w
+        elif req.target_aspect == "1:1":
+            target_w = target_h = max(w, h)
+        else:
+            target_w, target_h = w, h
+
+        if target_w != w or target_h != h:
+            # Размытый фон из самого видео + оригинал по центру
+            blur_filter = (
+                f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                f"crop={target_w}:{target_h},gblur=sigma=40[bg];"
+                f"[0:v]scale={w}:{h}[fg];"
+                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p"
+            )
+            pad_cmd = [
+                "-i", str(video_path),
+                "-filter_complex", blur_filter,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                "-r", str(fps),
+                "-pix_fmt", "yuv420p",
+            ]
+            if has_audio:
+                pad_cmd.extend(["-c:a", "aac", "-b:a", "192k"])
+            pad_cmd.extend(["-y", str(padded_path)])
+            await run_ffmpeg(pad_cmd)
+            video_path = padded_path
+            w, h = target_w, target_h
 
     # 2. Наложить watermark на основное видео
     watermarked_path = job_dir / "watermarked.mp4"

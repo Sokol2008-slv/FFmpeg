@@ -42,7 +42,7 @@ class ProcessVideoRequest(BaseModel):
     fade_duration: float = Field(1.0, description="Длительность crossfade перехода в секундах")
     watermark_opacity: float = Field(0.8, description="Прозрачность watermark (0.0-1.0)")
     watermark_scale: float = Field(0.15, description="Размер логотипа относительно ширины видео")
-    watermark_margin: int = Field(20, description="Отступ от края в пикселях")
+    watermark_margin: int = Field(50, description="Отступ от края в пикселях (50+ для Instagram safe zone)")
 
 
 class ProcessVideoResponse(BaseModel):

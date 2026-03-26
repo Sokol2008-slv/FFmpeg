@@ -194,7 +194,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
                 pad_cmd = [
                     "-i", str(video_path),
                     "-filter_complex", vf,
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                     "-r", str(fps),
                     "-pix_fmt", "yuv420p",
                 ]
@@ -203,7 +203,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
                 pad_cmd = [
                     "-i", str(video_path),
                     "-vf", f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color=black,format=yuv420p",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                     "-r", str(fps),
                     "-pix_fmt", "yuv420p",
                 ]
@@ -231,7 +231,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
         "-i", str(video_path),
         "-i", str(logo_path),
         "-filter_complex", watermark_filter,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-r", str(fps),
         "-pix_fmt", "yuv420p",
     ]
@@ -269,7 +269,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
         "-i", f"color=c=black:s={w}x{h}:d={req.outro_duration}:r={fps}",
         "-i", str(logo_path),
         "-filter_complex", outro_filter,
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
         "-r", str(fps),
         "-t", str(req.outro_duration),
         "-pix_fmt", "yuv420p",
@@ -308,7 +308,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
             f"[1:a]aformat=sample_rates=44100:channel_layouts=stereo[a1];"
             f"[a0][a1]acrossfade=d={fade_dur}:c1=tri:c2=tri[aout]",
             "-map", "[vout]", "-map", "[aout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "192k",
             "-pix_fmt", "yuv420p",
             "-y", str(output_path),
@@ -323,7 +323,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
             f"[1:v]settb=AVTB,fps={fps},format=yuv420p[v1];"
             f"[v0][v1]xfade=transition=fade:duration={fade_dur}:offset={xfade_offset}[vout]",
             "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-pix_fmt", "yuv420p",
             "-an",
             "-y", str(output_path),

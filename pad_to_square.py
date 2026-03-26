@@ -297,3 +297,38 @@ async def overlay_price(req: OverlayPriceRequest):
         filename=filename,
     )
 
+
+# --- Save Image (proxy hcti.io or any URL to persistent Railway hosting) ---
+
+
+class SaveImageRequest(BaseModel):
+    image_url: str = Field(..., description="URL изображения для сохранения")
+
+
+class SaveImageResponse(BaseModel):
+    status: str
+    output_url: str
+    filename: str
+
+
+@router.post("/save-image", response_model=SaveImageResponse)
+async def save_image(req: SaveImageRequest):
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    ext = "png" if "hcti.io" in req.image_url else "jpg"
+    filename = f"saved_{job_id}.{ext}"
+    output_path = job_dir / filename
+
+    await download_file(req.image_url, output_path)
+
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise HTTPException(status_code=500, detail="Failed to download image")
+
+    return SaveImageResponse(
+        status="done",
+        output_url=f"/download/{job_id}/{filename}",
+        filename=filename,
+    )
+

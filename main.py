@@ -38,6 +38,7 @@ class ProcessVideoRequest(BaseModel):
     logo_url: str = Field(..., description="URL логотипа Kaizen (PNG с прозрачностью)")
     slogan: Optional[str] = Field(None, description="Слоган для аутро (если есть)")
     target_aspect: Optional[str] = Field(None, description="Целевой формат: '9:16', '1:1' или None (оставить как есть)")
+    pad_style: str = Field("black", description="Стиль паддинга: 'black' (быстро) или 'blur' (размытый фон)")
     outro_duration: float = Field(3.0, description="Длительность аутро в секундах")
     fade_duration: float = Field(1.0, description="Длительность crossfade перехода в секундах")
     watermark_opacity: float = Field(0.8, description="Прозрачность watermark (0.0-1.0)")
@@ -179,20 +180,34 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
             target_w, target_h = w, h
 
         if target_w != w or target_h != h:
-            # Размытый фон из самого видео + оригинал по центру
-            blur_filter = (
-                f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
-                f"crop={target_w}:{target_h},gblur=sigma=40[bg];"
-                f"[0:v]scale={w}:{h}[fg];"
-                f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p"
-            )
-            pad_cmd = [
-                "-i", str(video_path),
-                "-filter_complex", blur_filter,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                "-r", str(fps),
-                "-pix_fmt", "yuv420p",
-            ]
+            pad_x = (target_w - w) // 2
+            pad_y = (target_h - h) // 2
+
+            if req.pad_style == "blur":
+                # Размытый фон из самого видео + оригинал по центру (медленно)
+                vf = (
+                    f"[0:v]scale={target_w}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop={target_w}:{target_h},gblur=sigma=40[bg];"
+                    f"[0:v]scale={w}:{h}[fg];"
+                    f"[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p"
+                )
+                pad_cmd = [
+                    "-i", str(video_path),
+                    "-filter_complex", vf,
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-r", str(fps),
+                    "-pix_fmt", "yuv420p",
+                ]
+            else:
+                # Чёрные полосы (быстро)
+                pad_cmd = [
+                    "-i", str(video_path),
+                    "-vf", f"pad={target_w}:{target_h}:{pad_x}:{pad_y}:color=black,format=yuv420p",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    "-r", str(fps),
+                    "-pix_fmt", "yuv420p",
+                ]
+
             if has_audio:
                 pad_cmd.extend(["-c:a", "aac", "-b:a", "192k"])
             pad_cmd.extend(["-y", str(padded_path)])

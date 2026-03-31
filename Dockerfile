@@ -2,7 +2,7 @@ FROM python:3.12-slim
 
 # Устанавливаем FFmpeg
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core && \
+    apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core libass9 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 

@@ -7,7 +7,6 @@ import os
 import uuid
 import json
 import asyncio
-import tempfile
 from pathlib import Path
 from typing import Optional
 from fastapi import APIRouter, HTTPException
@@ -97,10 +96,10 @@ async def get_video_info(video_path: Path) -> dict:
 
 
 async def extract_audio(video_path: Path, audio_path: Path):
-    """Извлекаем аудио в WAV для Whisper."""
+    """Извлекаем аудио в mp3 для Whisper (лимит 25MB, mp3 ~0.12MB/мин)."""
     await run_ffmpeg([
         "-i", str(video_path),
-        "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+        "-vn", "-acodec", "libmp3lame", "-ar", "16000", "-ac", "1", "-b:a", "32k",
         "-y", str(audio_path),
     ])
 
@@ -410,7 +409,7 @@ async def subtitle_video(req: SubtitleVideoRequest):
     info = await get_video_info(video_path)
 
     # 2. Извлекаем аудио
-    audio_path = job_dir / "audio.wav"
+    audio_path = job_dir / "audio.mp3"
     await extract_audio(video_path, audio_path)
 
     # 3. Транскрибируем через Whisper

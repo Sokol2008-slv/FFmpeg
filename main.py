@@ -23,7 +23,9 @@ from typing import Optional
 app = FastAPI(title="Kaizen FFmpeg Service", version="2.0.0")
 
 from pad_to_square import router as pad_router
+from subtitles import router as subtitle_router
 app.include_router(pad_router)
+app.include_router(subtitle_router)
 
 WORK_DIR = Path("/tmp/kaizen-ffmpeg")
 WORK_DIR.mkdir(exist_ok=True)

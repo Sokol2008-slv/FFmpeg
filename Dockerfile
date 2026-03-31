@@ -11,7 +11,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY main.py pad_to_square.py ./
+COPY main.py pad_to_square.py subtitles.py ./
 
 # Railway использует переменную PORT
 ENV PORT=8000

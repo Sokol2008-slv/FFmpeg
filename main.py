@@ -17,15 +17,27 @@ import httpx
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 
 app = FastAPI(title="Kaizen FFmpeg Service", version="2.0.0")
 
+# CORS — разрешаем фронтенд Axiomativ
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 from pad_to_square import router as pad_router
 from subtitles import router as subtitle_router
+from upload import router as upload_router
 app.include_router(pad_router)
 app.include_router(subtitle_router)
+app.include_router(upload_router)
 
 WORK_DIR = Path("/tmp/kaizen-ffmpeg")
 WORK_DIR.mkdir(exist_ok=True)

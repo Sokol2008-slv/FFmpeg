@@ -47,15 +47,17 @@ def parse_job_options(request: Request) -> dict:
     }
 
 
-async def process_job(job_id: str, video_path: Path, options: dict):
-    """Фоновая обработка видео: филлеры → субтитры → цветокоррекция."""
+async def process_job(job_uuid: str, dir_id: str, video_path: Path, options: dict):
+    """Фоновая обработка видео: филлеры → субтитры → цветокоррекция.
+    job_uuid — полный UUID для Supabase, dir_id — короткий id для папки/download.
+    """
     sb = get_supabase()
 
     try:
         # Обновляем статус на processing
         sb.table("video_jobs").update({
             "status": "processing",
-        }).eq("id", job_id).execute()
+        }).eq("id", job_uuid).execute()
 
         from subtitles import (
             get_video_info, extract_audio, transcribe_whisper,
@@ -143,22 +145,25 @@ async def process_job(job_id: str, video_path: Path, options: dict):
             current_video.rename(final_path)
 
         # Формируем URL для скачивания
-        result_url = f"/download/{job_id}/result_{job_id}.mp4"
+        result_url = f"/download/{dir_id}/result_{dir_id}.mp4"
 
         # Обновляем статус в Supabase
         sb.table("video_jobs").update({
             "status": "done",
             "result_url": result_url,
             "finished_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", job_id).execute()
+        }).eq("id", job_uuid).execute()
 
     except Exception as e:
         # Ошибка — пишем в Supabase
-        sb.table("video_jobs").update({
-            "status": "error",
-            "error_message": str(e)[:500],
-            "finished_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", job_id).execute()
+        try:
+            sb.table("video_jobs").update({
+                "status": "error",
+                "error_message": str(e)[:500],
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", job_uuid).execute()
+        except Exception:
+            pass  # Не падаем если Supabase тоже не доступен
         raise
 
 
@@ -253,7 +258,8 @@ async def upload_video(request: Request, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create job: {e}")
 
-    # Запускаем обработку в фоне
-    asyncio.create_task(process_job(job_id[:8], video_path, options))
+    # Запускаем обработку в фоне (полный UUID для Supabase, короткий для папки)
+    dir_id = job_id[:8]
+    asyncio.create_task(process_job(job_id, dir_id, video_path, options))
 
     return {"jobId": job_id}

@@ -498,22 +498,21 @@ async def preview_instagram(image_url: str, logo_url: str):
     ui_top_h = int(h * 0.08)
 
     # FFmpeg: кроп боковых краёв + нарисовать полупрозрачные UI зоны
+    font = FONT_PATH
     filter_complex = (
         f"[0:v]crop={visible_w}:{h}:{side_crop_px}:0[cropped];"
-        # Правая зона кнопок — тёмный полупрозрачный прямоугольник
+        # Правая зона кнопок Instagram (лайк/коммент/поделиться)
         f"[cropped]drawbox=x={visible_w - ui_right_w}:y=0:w={ui_right_w}:h={h}:"
         f"color=black@0.45:t=fill[r1];"
-        # Нижняя зона подписи
+        # Нижняя зона (username, подпись, музыка)
         f"[r1]drawbox=x=0:y={h - ui_bottom_h}:w={visible_w}:h={ui_bottom_h}:"
         f"color=black@0.50:t=fill[r2];"
         # Верхняя зона (Dynamic Island + Instagram header)
         f"[r2]drawbox=x=0:y=0:w={visible_w}:h={ui_top_h}:"
         f"color=black@0.35:t=fill[r3];"
-        # Текст-метки зон
-        f"[r3]drawtext=text='Instagram UI buttons':x={visible_w - ui_right_w + 5}:y={h//2}:"
-        f"fontsize=20:fontcolor=white@0.8:angle=90[r4];"
-        f"[r4]drawtext=text='Caption / Music / Username':x=10:y={h - ui_bottom_h + 10}:"
-        f"fontsize=22:fontcolor=white@0.8[out]"
+        # Подпись снизу
+        f"[r3]drawtext=text='caption / music / username':fontfile={font}:"
+        f"x=10:y={h - ui_bottom_h + 12}:fontsize=24:fontcolor=white@0.7[out]"
     )
 
     cmd2 = [

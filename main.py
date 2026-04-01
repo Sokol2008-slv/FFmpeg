@@ -233,8 +233,8 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
     watermarked_path = job_dir / "watermarked.mp4"
 
     logo_w = int(w * req.watermark_scale)
-    margin_x = req.watermark_margin + 50   # левее от правого края (Instagram safe zone)
-    margin_y = req.watermark_margin + 200  # ниже от верхнего края (подальше от закруглённых углов iPhone)
+    margin_x = req.watermark_margin + 25   # немного левее от правого края
+    margin_y = req.watermark_margin + 80   # немного ниже от верхнего края (iPhone safe zone)
 
     watermark_filter = (
         f"[1:v]scale={logo_w}:-1,format=rgba,"
@@ -390,8 +390,8 @@ async def preview_logo(image_url: str, logo_url: str):
     w = info["streams"][0]["width"]
 
     logo_w = int(w * 0.15)
-    margin_x = 50 + 50
-    margin_y = 50 + 200
+    margin_x = 50 + 25
+    margin_y = 50 + 80
 
     cmd = [
         "ffmpeg", "-y",

@@ -233,12 +233,13 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
     watermarked_path = job_dir / "watermarked.mp4"
 
     logo_w = int(w * req.watermark_scale)
-    margin = req.watermark_margin
+    margin_x = req.watermark_margin + 20   # немного левее от правого края
+    margin_y = req.watermark_margin + 30   # немного ниже от верхнего края
 
     watermark_filter = (
         f"[1:v]scale={logo_w}:-1,format=rgba,"
         f"colorchannelmixer=aa={req.watermark_opacity}[wm];"
-        f"[0:v][wm]overlay=W-w-{margin}:{margin},format=yuv420p"
+        f"[0:v][wm]overlay=W-w-{margin_x}:{margin_y},format=yuv420p"
     )
 
     watermark_cmd = [

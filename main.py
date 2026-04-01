@@ -415,6 +415,125 @@ async def preview_logo(image_url: str, logo_url: str):
     return FileResponse(output_path, media_type="image/jpeg", filename="logo_preview.jpg")
 
 
+@app.get("/preview-instagram")
+async def preview_instagram(image_url: str, logo_url: str):
+    """
+    Симулирует как видео будет выглядеть в Instagram Reels на iPhone.
+
+    1. Накладывает логотип с текущими margin настройками
+    2. Обрезает боковые края (Instagram кропит ~76px с каждой стороны для 1056px видео на iPhone 14)
+    3. Рисует полупрозрачные зоны Instagram UI (кнопки справа, подпись снизу)
+
+    Результат = точная симуляция без публикации.
+    """
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    image_path = job_dir / "image.jpg"
+    logo_path = job_dir / "logo.png"
+    with_logo_path = job_dir / "with_logo.jpg"
+    output_path = job_dir / "instagram_preview.jpg"
+
+    await asyncio.gather(
+        download_file(image_url, image_path),
+        download_file(logo_url, logo_path),
+    )
+
+    # Получаем размеры
+    probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "json", str(image_path)]
+    proc = await asyncio.create_subprocess_exec(
+        *probe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await proc.communicate()
+    info = json.loads(stdout)
+    w = info["streams"][0]["width"]
+    h = info["streams"][0]["height"]
+
+    # Шаг 1: наложить логотип (те же margin что в /process)
+    logo_w = int(w * 0.15)
+    margin_x = 50 + 40
+    margin_y = 50 + 120
+
+    cmd1 = [
+        "ffmpeg", "-y",
+        "-i", str(image_path),
+        "-i", str(logo_path),
+        "-filter_complex",
+        f"[1:v]scale={logo_w}:-1,format=rgba,colorchannelmixer=aa=0.8[wm];"
+        f"[0:v][wm]overlay=W-w-{margin_x}:{margin_y}",
+        "-frames:v", "1", "-q:v", "2",
+        str(with_logo_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd1, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    await proc.communicate()
+
+    # Шаг 2: симулировать Instagram кроп + UI оверлей
+    # iPhone 14: 390pt wide. Видео 9:16 отображается по высоте экрана.
+    # Видимая ширина видео = 390/844 * h_display * aspect — реальный кроп с каждой стороны:
+    # scale_factor = screen_h / h = 844/1920 ≈ 0.4396 (для стандартного 1920px)
+    # Для нашего h: scaled_w = w * (844/h) * (1920/844) — упрощается до w * 1920/h
+    # Crop: сколько px обрезается с каждой стороны по горизонтали
+    iphone_screen_w = 390  # logical points iPhone 14
+    iphone_screen_h = 844  # logical points iPhone 14
+    # При отображении full-height: масштаб = iphone_screen_h / h
+    scale = iphone_screen_h / h
+    scaled_w_pts = w * scale
+    side_crop_pts = (scaled_w_pts - iphone_screen_w) / 2
+    side_crop_px = int(side_crop_pts / scale)  # переводим обратно в пиксели видео
+    side_crop_px = max(0, side_crop_px)
+
+    # Видимая ширина после кропа
+    visible_w = w - 2 * side_crop_px
+
+    # Зоны Instagram UI (в координатах обрезанного изображения):
+    # Правая колонка кнопок (лайк/коммент/поделиться): последние ~13% ширины
+    ui_right_w = int(visible_w * 0.13)
+    # Нижняя зона (username, подпись, музыка): последние ~22% высоты
+    ui_bottom_h = int(h * 0.22)
+    # Верхняя зона (UI chrome Instagram + Dynamic Island): ~8% высоты
+    ui_top_h = int(h * 0.08)
+
+    # FFmpeg: кроп боковых краёв + нарисовать полупрозрачные UI зоны
+    filter_complex = (
+        f"[0:v]crop={visible_w}:{h}:{side_crop_px}:0[cropped];"
+        # Правая зона кнопок — тёмный полупрозрачный прямоугольник
+        f"[cropped]drawbox=x={visible_w - ui_right_w}:y=0:w={ui_right_w}:h={h}:"
+        f"color=black@0.45:t=fill[r1];"
+        # Нижняя зона подписи
+        f"[r1]drawbox=x=0:y={h - ui_bottom_h}:w={visible_w}:h={ui_bottom_h}:"
+        f"color=black@0.50:t=fill[r2];"
+        # Верхняя зона (Dynamic Island + Instagram header)
+        f"[r2]drawbox=x=0:y=0:w={visible_w}:h={ui_top_h}:"
+        f"color=black@0.35:t=fill[r3];"
+        # Текст-метки зон
+        f"[r3]drawtext=text='Instagram UI buttons':x={visible_w - ui_right_w + 5}:y={h//2}:"
+        f"fontsize=20:fontcolor=white@0.8:angle=90[r4];"
+        f"[r4]drawtext=text='Caption / Music / Username':x=10:y={h - ui_bottom_h + 10}:"
+        f"fontsize=22:fontcolor=white@0.8[out]"
+    )
+
+    cmd2 = [
+        "ffmpeg", "-y",
+        "-i", str(with_logo_path),
+        "-vf", filter_complex,
+        "-frames:v", "1", "-q:v", "2",
+        str(output_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd2, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+
+    if not output_path.exists():
+        raise HTTPException(status_code=500, detail=f"Failed: {stderr.decode()[-500:]}")
+
+    return FileResponse(output_path, media_type="image/jpeg", filename="instagram_preview.jpg")
+
+
 @app.post("/process", response_model=ProcessVideoResponse)
 async def process_endpoint(req: ProcessVideoRequest):
     """

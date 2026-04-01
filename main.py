@@ -356,6 +356,65 @@ async def health():
     return {"status": "ok", "service": "kaizen-ffmpeg", "version": "2.0.0"}
 
 
+@app.get("/preview-logo")
+async def preview_logo(image_url: str, logo_url: str):
+    """
+    Быстрый превью позиции логотипа на изображении — без видео, без Kling.
+    Возвращает JPG с наложенным логотипом.
+    Используй для проверки позиции логотипа перед запуском полного пайплайна.
+
+    Пример:
+    GET /preview-logo?image_url=https://...&logo_url=https://...
+    """
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    image_path = job_dir / "image.jpg"
+    logo_path = job_dir / "logo.png"
+    output_path = job_dir / "preview.jpg"
+
+    await asyncio.gather(
+        download_file(image_url, image_path),
+        download_file(logo_url, logo_path),
+    )
+
+    # Получаем размеры изображения
+    probe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height", "-of", "json", str(image_path)]
+    proc = await asyncio.create_subprocess_exec(
+        *probe_cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    stdout, _ = await proc.communicate()
+    info = json.loads(stdout)
+    w = info["streams"][0]["width"]
+
+    logo_w = int(w * 0.15)
+    margin_x = 50 + 20
+    margin_y = 50 + 30
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(image_path),
+        "-i", str(logo_path),
+        "-filter_complex",
+        f"[1:v]scale={logo_w}:-1,format=rgba,colorchannelmixer=aa=0.8[wm];"
+        f"[0:v][wm]overlay=W-w-{margin_x}:{margin_y}",
+        "-frames:v", "1",
+        "-q:v", "2",
+        str(output_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    await proc.communicate()
+
+    if not output_path.exists():
+        raise HTTPException(status_code=500, detail="Failed to generate preview")
+
+    return FileResponse(output_path, media_type="image/jpeg", filename="logo_preview.jpg")
+
+
 @app.post("/process", response_model=ProcessVideoResponse)
 async def process_endpoint(req: ProcessVideoRequest):
     """

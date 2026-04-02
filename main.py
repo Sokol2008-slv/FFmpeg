@@ -58,6 +58,7 @@ class ProcessVideoRequest(BaseModel):
     watermark_opacity: float = Field(0.8, description="Прозрачность watermark (0.0-1.0)")
     watermark_scale: float = Field(0.15, description="Размер логотипа относительно ширины видео")
     watermark_margin: int = Field(50, description="Отступ от края в пикселях (50+ для Instagram safe zone)")
+    skip_outro: bool = Field(False, description="Если True — только watermark в углу, без аутро (для Stories и Posts)")
 
 
 class ProcessVideoResponse(BaseModel):
@@ -256,6 +257,10 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
 
     watermark_cmd.extend(["-y", str(watermarked_path)])
     await run_ffmpeg(watermark_cmd)
+
+    # Если skip_outro=True — возвращаем видео только с watermark (для Stories и Posts)
+    if req.skip_outro:
+        return watermarked_path
 
     # 3. Создать аутро с fade-in
     outro_path = job_dir / "outro.mp4"
@@ -581,7 +586,7 @@ async def download(job_id: str, filename: str):
     file_path = job_dir / filename
     if not file_path.exists():
         # Fallback: ищем по известным именам
-        candidates = ["final.mp4", "square.jpg", "vertical.jpg"]
+        candidates = ["final.mp4", "watermarked.mp4", "square.jpg", "vertical.jpg"]
         file_path = None
         for name in candidates:
             p = job_dir / name

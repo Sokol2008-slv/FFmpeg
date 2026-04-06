@@ -12,14 +12,18 @@ Deploy: Railway (Dockerfile)
 import os
 import uuid
 import json
+import base64
 import asyncio
 import httpx
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
+from openai import AsyncOpenAI
+
+openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 app = FastAPI(title="Kaizen FFmpeg Service", version="2.0.0")
 
@@ -359,6 +363,82 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "kaizen-ffmpeg", "version": "2.0.0"}
+
+
+class AnalyzeRequest(BaseModel):
+    video_url: str
+    frame_count: int = Field(6, ge=1, le=10)
+
+
+@app.post("/analyze")
+async def analyze_video(req: AnalyzeRequest):
+    """
+    Извлекает N кадров из видео и аудио-дорожку.
+    Кадры возвращаются как base64 JPEG.
+    Аудио возвращается как base64 MP3 (если есть).
+    Используется для анализа содержимого видео через Claude Vision + Whisper.
+    """
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = WORK_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    video_path = job_dir / "input.mp4"
+    await download_file(req.video_url, video_path)
+
+    info = await get_video_info(video_path)
+    duration = info["duration"]
+    has_audio = info["has_audio"]
+
+    # Извлекаем кадры равномерно по всему видео
+    frames_b64 = []
+    for i in range(req.frame_count):
+        t = duration * (i + 0.5) / req.frame_count
+        frame_path = job_dir / f"frame_{i}.jpg"
+        try:
+            await run_ffmpeg([
+                "-ss", str(round(t, 2)),
+                "-i", str(video_path),
+                "-frames:v", "1",
+                "-q:v", "4",
+                "-y", str(frame_path),
+            ])
+            if frame_path.exists():
+                frames_b64.append(base64.b64encode(frame_path.read_bytes()).decode())
+        except Exception:
+            pass
+
+    # Извлекаем аудио и транскрибируем через Whisper (если есть)
+    transcript = None
+    if has_audio and os.environ.get("OPENAI_API_KEY"):
+        audio_path = job_dir / "audio.mp3"
+        try:
+            await run_ffmpeg([
+                "-i", str(video_path),
+                "-vn",
+                "-ar", "16000",
+                "-ac", "1",
+                "-b:a", "64k",
+                "-t", "60",  # максимум 60 секунд
+                "-y", str(audio_path),
+            ])
+            if audio_path.exists() and audio_path.stat().st_size > 1000:
+                with open(audio_path, "rb") as f:
+                    result = await openai_client.audio.transcriptions.create(
+                        model="whisper-1",
+                        file=f,
+                        response_format="text",
+                    )
+                transcript = result.strip() if result else None
+        except Exception as e:
+            transcript = None  # тихо пропускаем ошибку Whisper
+
+    return {
+        "frames": frames_b64,
+        "transcript": transcript,
+        "has_audio": has_audio,
+        "duration": round(duration, 1),
+        "frame_count": len(frames_b64),
+    }
 
 
 @app.get("/preview-logo")

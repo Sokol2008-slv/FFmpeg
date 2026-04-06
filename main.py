@@ -63,6 +63,7 @@ class ProcessVideoRequest(BaseModel):
     watermark_scale: float = Field(0.15, description="Размер логотипа относительно ширины видео")
     watermark_margin: int = Field(50, description="Отступ от края в пикселях (50+ для Instagram safe zone)")
     skip_outro: bool = Field(False, description="Если True — только watermark в углу, без аутро (для Stories и Posts)")
+    audio_url: Optional[str] = Field(None, description="URL аудио для замены/добавления к видео (ASMR, музыка)")
 
 
 class ProcessVideoResponse(BaseModel):
@@ -261,6 +262,25 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
 
     watermark_cmd.extend(["-y", str(watermarked_path)])
     await run_ffmpeg(watermark_cmd)
+
+    # 2.5. Добавить аудио если указан audio_url
+    if req.audio_url:
+        audio_path = job_dir / "audio.mp3"
+        await download_file(req.audio_url, audio_path)
+        with_audio_path = job_dir / "with_audio.mp4"
+        audio_cmd = [
+            "-i", str(watermarked_path),
+            "-i", str(audio_path),
+            "-map", "0:v",
+            "-map", "1:a",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest",
+            "-y", str(with_audio_path)
+        ]
+        await run_ffmpeg(audio_cmd)
+        watermarked_path = with_audio_path
+        has_audio = True
 
     # Если skip_outro=True — возвращаем видео только с watermark (для Stories и Posts)
     if req.skip_outro:

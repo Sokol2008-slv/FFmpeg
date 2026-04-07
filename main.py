@@ -64,6 +64,7 @@ class ProcessVideoRequest(BaseModel):
     watermark_margin: int = Field(50, description="Отступ от края в пикселях (50+ для Instagram safe zone)")
     skip_outro: bool = Field(False, description="Если True — только watermark в углу, без аутро (для Stories и Posts)")
     audio_url: Optional[str] = Field(None, description="URL аудио для замены/добавления к видео (ASMR, музыка)")
+    audio_start_time: Optional[float] = Field(None, description="Время начала в секундах для аудио (например 60.0 = 1:00)")
 
 
 class ProcessVideoResponse(BaseModel):
@@ -270,6 +271,7 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
         with_audio_path = job_dir / "with_audio.mp4"
         audio_cmd = [
             "-i", str(watermarked_path),
+            *(["-ss", str(req.audio_start_time)] if req.audio_start_time else []),
             "-i", str(audio_path),
             "-map", "0:v",
             "-map", "1:a",

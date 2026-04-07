@@ -269,9 +269,17 @@ async def process_video(req: ProcessVideoRequest, job_id: str) -> Path:
         audio_path = job_dir / "audio.mp3"
         await download_file(req.audio_url, audio_path)
         with_audio_path = job_dir / "with_audio.mp4"
+
+        # Clamp audio_start_time to not exceed audio file duration
+        safe_start: float = 0.0
+        if req.audio_start_time:
+            audio_info = await get_video_info(audio_path)
+            audio_dur = audio_info.get("duration", 0)
+            safe_start = min(float(req.audio_start_time), max(0.0, audio_dur - 5.0))
+
         audio_cmd = [
             "-i", str(watermarked_path),
-            *(["-ss", str(req.audio_start_time)] if req.audio_start_time else []),
+            *(["-ss", str(safe_start)] if safe_start > 0 else []),
             "-i", str(audio_path),
             "-map", "0:v",
             "-map", "1:a",

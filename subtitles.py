@@ -9,7 +9,7 @@ import json
 import asyncio
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Header
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
 
@@ -474,3 +474,75 @@ async def subtitle_video(req: SubtitleVideoRequest):
         filename=filename,
         transcript=transcript["text"],
     )
+
+
+# --- Audio-only transcribe endpoint (для AI-помощника кабинета axiomativ-website) ---
+
+def _verify_bearer(authorization: Optional[str]) -> None:
+    """Если FFMPEG_SERVICE_SECRET установлен — требуем Bearer токен. Иначе open."""
+    expected = os.environ.get("FFMPEG_SERVICE_SECRET")
+    if not expected:
+        return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    if authorization[7:] != expected:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+@router.post("/transcribe")
+async def transcribe_audio(
+    file: UploadFile = File(..., description="Audio blob (webm/mp3/wav/m4a)"),
+    language: str = Form("ru", description="Язык речи: 'ru', 'en', 'auto' и т.д."),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Транскрибирует audio blob через OpenAI Whisper-1.
+
+    Используется AI-помощником кабинета axiomativ-website для голосового
+    управления: MediaRecorder в браузере → POST audio blob → текст.
+
+    Принимает: multipart/form-data с полем "file" (audio) и опциональным "language".
+    Auth: Bearer ${FFMPEG_SERVICE_SECRET} если установлен в env, иначе open.
+    Возвращает: { text, language, word_count }.
+
+    Лимит Whisper-1: 25MB. На фронте срезать запись если длиннее ~5 мин.
+    """
+    _verify_bearer(authorization)
+
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+    job_id = str(uuid.uuid4())[:8]
+    # Определяем расширение из filename (MediaRecorder обычно даёт .webm)
+    suffix = ".webm"
+    if file.filename and "." in file.filename:
+        suffix = "." + file.filename.rsplit(".", 1)[-1].lower()
+    audio_path = WORK_DIR / f"transcribe-{job_id}{suffix}"
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        contents = await file.read()
+        if len(contents) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Audio file too large (max 25MB)")
+        audio_path.write_bytes(contents)
+
+        # Whisper API требует non-empty language. "auto" не поддерживается —
+        # передаём None если запрошен auto.
+        whisper_lang = language if language and language != "auto" else "ru"
+        result = await transcribe_whisper(audio_path, whisper_lang)
+
+        return {
+            "text": result["text"],
+            "language": whisper_lang,
+            "word_count": len(result.get("words", [])),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+    finally:
+        if audio_path.exists():
+            try:
+                audio_path.unlink()
+            except Exception:
+                pass
